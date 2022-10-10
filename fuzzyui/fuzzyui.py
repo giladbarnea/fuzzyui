@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 import functools
 import re
+import sys
 from typing import NoReturn
 
 from blessed import Terminal
-from fuzzywuzzy import process as fuzzyprocess
+
+try:
+    from rapidfuzz import fuzz
+    from rapidfuzz import process as fuzzyprocess
+except ModuleNotFoundError:
+    from fuzzywuzzy import fuzz
+    from fuzzywuzzy import process as fuzzyprocess
+
+SCORE_CUTOFF = 30
 
 
 class fuzzyui:
@@ -13,12 +22,19 @@ class fuzzyui:
         self.items: list[str] = items or []
         self.term = None
         self.echo = functools.partial(print, end='', flush=True)
-        self.fuzzysorted: list[tuple[str, int]] = []
+        self.fuzzysorted: list[tuple[str, int | float, int]] = []  # item, score, key
 
-    def is_within_bounds(self, idx: int) -> bool:
+    def _setup_terminal(self) -> NoReturn:
+        if sys.stdin.isatty():
+            self.term = Terminal()
+        else:
+            from unittest.mock import MagicMock
+            self.term = MagicMock()
+
+    def _is_within_bounds(self, idx: int) -> bool:
         return len(self.fuzzysorted) > idx >= 0
 
-    def highlight_input_characters(self, item, input_string: str, is_idx=False) -> NoReturn:
+    def _highlight_input_characters(self, item, input_string: str, is_idx=False) -> NoReturn:
         """Make the letters that match input_string stand out a bit more"""
         if input_string:
             pattern = re.compile(fr'[{input_string}]')
@@ -40,8 +56,9 @@ class fuzzyui:
             else:
                 self.echo(str(item))
 
-    def render(self, idx, input_string: str) -> NoReturn:
-        self.fuzzysorted: list[tuple[str, int]] = fuzzyprocess.extract(input_string, self.items, limit=len(self.items))
+    def _render(self, idx, input_string: str) -> NoReturn:
+        extracted_matches: list[tuple[str, int | float, int]] = fuzzyprocess.extract(input_string, self.items, limit=len(self.items), scorer=fuzz.token_sort_ratio, score_cutoff=SCORE_CUTOFF)
+        self.fuzzysorted = extracted_matches
         # Clear screen
         self.echo(self.term.home + self.term.clear)
         # Set bottom height for list to be displayed
@@ -51,16 +68,16 @@ class fuzzyui:
 
         # fuzzysorted reutrns an array of tuples: [('one', 45), ('three', 45), ('two', 0)]
         displayed_items_count = 0
-        for index, (item, score) in enumerate(self.fuzzysorted):
+        for index, (item, score, key) in enumerate(self.fuzzysorted):
             # If there's no input_string filter, output everything
-            if score >= 30 or input_string == "":
+            if score >= SCORE_CUTOFF or input_string == "":
                 displayed_items_count += 1
                 if index == idx:
                     self.echo(self.term.red_on_grey30("> "))
-                    self.highlight_input_characters(item, input_string, is_idx=True)
+                    self._highlight_input_characters(item, input_string, is_idx=True)
                 else:
                     self.echo(self.term.snow_on_grey30(" ") + " ")
-                    self.highlight_input_characters(item, input_string)
+                    self._highlight_input_characters(item, input_string)
                 self.echo(self.term.move_x(0) + self.term.move_up(1))
 
         # Count of how many displayed vs total passed in
@@ -69,7 +86,7 @@ class fuzzyui:
         self.echo(self.term.move_xy(0, self.term.height - 1) + f"> {input_string}\u2588")
 
     def find(self, items: list[str], searchtext: str = ""):
-        self.term = Terminal()
+        self._setup_terminal()
         self.items = items
         with self.term.fullscreen(), self.term.hidden_cursor(), self.term.cbreak():
             idx = 0
@@ -81,14 +98,17 @@ class fuzzyui:
                 inp = self.term.inkey(timeout=.05)
 
                 if dirty:
-                    self.render(idx, input_string)
+                    self._render(idx, input_string)
 
+                if len(self.fuzzysorted) == 1:
+                    selected_value = self.fuzzysorted[0][0]
+                    break
                 if inp.code == self.term.KEY_DOWN:
-                    if self.is_within_bounds(idx - 1):
+                    if self._is_within_bounds(idx - 1):
                         idx -= 1
                         dirty = True
                 elif inp.code == self.term.KEY_UP:
-                    if self.is_within_bounds(idx + 1):
+                    if self._is_within_bounds(idx + 1):
                         idx += 1
                         dirty = True
                 elif inp.code == self.term.KEY_ESCAPE:
