@@ -9,14 +9,36 @@ from fuzzywuzzy import process as fuzzyprocess
 
 class fuzzyui:
 
-    def __init__(self, items=None):
-        self.items = items or []
+    def __init__(self, items: list[str] = None):
+        self.items: list[str] = items or []
         self.term = None
         self.echo = functools.partial(print, end='', flush=True)
         self.fuzzysorted: list[tuple[str, int]] = []
 
-    def is_within_bounds(self, idx) -> bool:
+    def is_within_bounds(self, idx: int) -> bool:
         return len(self.fuzzysorted) > idx >= 0
+
+    def highlight_input_characters(self, item, input_string: str, is_idx=False) -> NoReturn:
+        """Make the letters that match input_string stand out a bit more"""
+        if input_string:
+            pattern = re.compile(fr'[{input_string}]')
+            for elem in map(str, item):
+                pattern_matches = pattern.match(elem)
+                if is_idx:  # Index pattern match
+                    if pattern_matches:
+                        self.echo(self.term.snow_on_grey30(elem))
+                    else:
+                        self.echo(self.term.grey60_on_grey30(elem))
+                else:  # Non-index pattern match
+                    if pattern_matches:
+                        self.echo(self.term.grey60(elem))
+                    else:
+                        self.echo(elem)
+        else:  # No input_string
+            if is_idx:
+                self.echo(self.term.on_grey30(str(item)))
+            else:
+                self.echo(str(item))
 
     def render(self, idx, input_string: str) -> NoReturn:
         self.fuzzysorted: list[tuple[str, int]] = fuzzyprocess.extract(input_string, self.items, limit=len(self.items))
@@ -46,29 +68,7 @@ class fuzzyui:
         # Bottom display prompt
         self.echo(self.term.move_xy(0, self.term.height - 1) + f"> {input_string}\u2588")
 
-    def highlight_input_characters(self, item, input_string: str, is_idx=False) -> NoReturn:
-        """Make the letters that match input_string stand out a bit more"""
-        if input_string:
-            pattern = re.compile(fr'[{input_string}]')
-            for elem in map(str, item):
-                pattern_matches = pattern.match(elem)
-                if is_idx:  # Index pattern match
-                    if pattern_matches:
-                        self.echo(self.term.snow_on_grey30(elem))
-                    else:
-                        self.echo(self.term.grey60_on_grey30(elem))
-                else:  # Non-index pattern match
-                    if pattern_matches:
-                        self.echo(self.term.grey60(elem))
-                    else:
-                        self.echo(elem)
-        else:  # No input_string
-            if is_idx:
-                self.echo(self.term.on_grey30(str(item)))
-            else:
-                self.echo(str(item))
-
-    def find(self, items, searchtext: str = ""):
+    def find(self, items: list[str], searchtext: str = ""):
         self.term = Terminal()
         self.items = items
         with self.term.fullscreen(), self.term.hidden_cursor(), self.term.cbreak():
