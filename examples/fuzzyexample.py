@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 from fuzzyui import fuzzyui
 
-items = ["baseball", "football", "soccer", "programming", "cooking", "sleeping"]
-initial_search = ''
+items = ["validator", "validator", "field", "config"]
+initial_search = 'validators'
 
 fui = fuzzyui()
-found = fui.find(items)
+found = fui.find(items, initial_search)
 print(found)
+assert found == 'validator'
